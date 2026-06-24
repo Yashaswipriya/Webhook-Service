@@ -17,6 +17,17 @@ const worker = new Worker(
   console.log("Event not found");
   return;
 }
+  if (event.status === "delivered") {
+  console.log("Event already delivered");
+  return;
+}
+  await pool.query(
+  `UPDATE events
+   SET status = 'processing'
+   WHERE id = $1`,
+  [event.id]
+);
+
   console.log("Fetched event:", event);
 
   //Find matching webhooks(subscribers)
@@ -28,7 +39,20 @@ const worker = new Worker(
   const webhooks = webhookResult.rows;
   console.log("Matching webhooks:", webhooks);
 
+  if (webhooks.length === 0) {
+  await pool.query(
+    `UPDATE events
+     SET status = 'delivered'
+     WHERE id = $1`,
+    [event.id]
+  );
+
+  console.log("No subscribers found");
+  return;
+}
+
   //Deliver to subscribers
+  let hasFailure = false;
   for (const webhook of webhooks) {
     try{
   const response = await axios.post(
@@ -67,9 +91,20 @@ const worker = new Worker(
       ]
   );
 
-  console.log(`Failed to deliver to ${webhook.url}` );
+  console.log(`Failed to deliver to ${webhook.url}: ${error.message}` );
+  hasFailure = true;
 }
 }
+if (hasFailure) {
+  throw new Error("One or more webhook deliveries failed");
+}
+
+await pool.query(
+  `UPDATE events
+   SET status = 'delivered'
+   WHERE id = $1`,
+  [event.id]
+);
   },
 
   {
@@ -81,3 +116,18 @@ const worker = new Worker(
 );
 
 console.log("Worker is listening for jobs...");
+
+worker.on("failed", async (job, err) => {
+  if (!job) return;
+
+  await pool.query(
+    `UPDATE events
+     SET status = 'failed'
+     WHERE id = $1`,
+    [job.data.eventId]
+  );
+
+  console.log(
+    `Event ${job.data.eventId} marked as failed: ${err.message}`
+  );
+});

@@ -1,6 +1,8 @@
 import { Worker } from "bullmq";
 import { pool } from "../config/db";
 import axios from "axios";
+import { signWebhook } from "../utils/signWebhook";
+import { deadLetterQueue } from "../queues/deadLetterQueue";
 
 const worker = new Worker(
   "webhook-events",
@@ -53,11 +55,17 @@ const worker = new Worker(
 
   //Deliver to subscribers
   let hasFailure = false;
+  const signature = signWebhook(event.payload);
   for (const webhook of webhooks) {
     try{
   const response = await axios.post(
     webhook.url,
-    event.payload
+    event.payload,
+    {
+    headers: {
+      "X-Signature": signature,
+    },
+    }
   );
 
   //Store successful delivery
@@ -126,6 +134,11 @@ worker.on("failed", async (job, err) => {
      WHERE id = $1`,
     [job.data.eventId]
   );
+  await deadLetterQueue.add("failed-webhook", {
+    eventId: job.data.eventId,
+    error: err.message,
+    failedAt: new Date().toISOString(),
+  });
 
   console.log(
     `Event ${job.data.eventId} marked as failed: ${err.message}`

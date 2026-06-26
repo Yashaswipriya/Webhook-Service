@@ -117,8 +117,7 @@ await pool.query(
 
   {
     connection: {
-      host: "localhost",
-      port: 6379,
+      url: process.env.REDIS_URL || "redis://localhost:6379",
     },
   }
 );

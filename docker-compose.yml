@@ -21,5 +21,36 @@ services:
     ports:
       - "6379:6379"
 
+  api:
+    build: .
+    container_name: webhook-api
+
+    command: npm run dev
+
+    ports:
+      - "5000:5000"
+
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/webhook_db
+      REDIS_URL: redis://redis:6379
+
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    container_name: webhook-worker
+
+    command: npm run worker
+
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/webhook_db
+      REDIS_URL: redis://redis:6379
+
+    depends_on:
+      - postgres
+      - redis
+
 volumes:
   postgres_data:
